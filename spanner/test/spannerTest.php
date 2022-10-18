@@ -17,6 +17,7 @@
 
 namespace Google\Cloud\Samples\Spanner;
 
+use Google\Cloud\Spanner\InstanceConfiguration;
 use Google\Cloud\Spanner\SpannerClient;
 use Google\Cloud\Spanner\Instance;
 use Google\Cloud\TestUtils\EventuallyConsistentTestTrait;
@@ -85,6 +86,15 @@ class spannerTest extends TestCase
     /** @var $lastUpdateData int */
     protected static $lastUpdateDataTimestamp;
 
+    /** @var string $baseConfigId */
+    protected static $baseConfigId;
+
+    /** @var string $customInstanceConfigId */
+    protected static $customInstanceConfigId;
+
+    /** @var InstanceConfiguration $customInstanceConfig */
+    protected static $customInstanceConfig;
+
     public static function setUpBeforeClass(): void
     {
         self::checkProjectEnvVars();
@@ -113,6 +123,9 @@ class spannerTest extends TestCase
         self::$defaultLeader = 'us-central1';
         self::$updatedDefaultLeader = 'us-east4';
         self::$multiInstance = $spanner->instance(self::$multiInstanceId);
+        self::$baseConfigId = 'nam7';
+        self::$customInstanceConfigId = 'custom-' . time() . rand();
+        self::$customInstanceConfig = $spanner->instanceConfiguration(self::$customInstanceConfigId);
     }
 
     public function testCreateInstance()
@@ -131,6 +144,64 @@ class spannerTest extends TestCase
         ]);
         $this->assertStringContainsString('Waiting for operation to complete...', $output);
         $this->assertStringContainsString('Created instance test-', $output);
+    }
+
+    public function testCreateInstanceConfig()
+    {
+        $output = $this->runFunctionSnippet('create_instance_config', [
+            self::$customInstanceConfigId, self::$baseConfigId
+        ]);
+
+        $this->assertStringContainsString(sprintf('Created instance configuration %s', self::$customInstanceConfigId), $output);
+    }
+
+    /**
+     * @depends testCreateInstanceConfig
+     */
+    public function testUpdateInstanceConfig()
+    {
+        $output = $this->runFunctionSnippet('update_instance_config', [
+            self::$customInstanceConfigId
+        ]);
+
+        $this->assertStringContainsString(sprintf('Updated instance configuration %s', self::$customInstanceConfigId), $output);
+    }
+
+    /**
+     * @depends testUpdateInstanceConfig
+     */
+    public function testDeleteInstanceConfig()
+    {
+        $output = $this->runFunctionSnippet('delete_instance_config', [
+            self::$customInstanceConfigId
+        ]);
+        $this->assertStringContainsString(sprintf('Deleted instance configuration %s', self::$customInstanceConfigId), $output);
+    }
+
+    /**
+     * @depends testUpdateInstanceConfig
+     */
+    public function testListInstanceConfigOperations()
+    {
+        $output = $this->runFunctionSnippet('list_instance_config_operations', [
+            self::$customInstanceConfigId
+        ]);
+
+        $this->assertStringContainsString(
+            sprintf(
+                'Instance config operation for %s of type %s has status done.',
+                self::$customInstanceConfigId,
+                'type.googleapis.com/google.spanner.admin.instance.v1.CreateInstanceConfigMetadata'
+            ),
+            $output);
+
+        $this->assertStringContainsString(
+            sprintf(
+                'Instance config operation for %s of type %s has status done.',
+                self::$customInstanceConfigId,
+                'type.googleapis.com/google.spanner.admin.instance.v1.UpdateInstanceConfigMetadata'
+            ),
+            $output);
     }
 
     /**
@@ -803,15 +874,24 @@ class spannerTest extends TestCase
     }
 
     /**
+     * @depends testAddColumn
+     */
+    public function testSpannerDmlBatchUpdateRequestPriority()
+    {
+        $output = $this->runFunctionSnippet('dml_batch_update_request_priority');
+        $this->assertStringContainsString('Executed 2 SQL statements using Batch DML with PRIORITY_LOW.', $output);
+    }
+
+    /**
      * @depends testCreateDatabase
      */
-    public function testAddDropDatabaseRole()
+    public function testAddAndDropDatabaseRole()
     {
-        $output = $this->runFunctionSnippet('add_drop_database_role');
-        $this->assertStringContainsString('Waiting for create role and grant operation to complete... ' . PHP_EOL, $output);
-        $this->assertStringContainsString('Created roles new_parent and new_child and granted privileges ' . PHP_EOL, $output);
-        $this->assertStringContainsString('Waiting for revoke role and drop role operation to complete... ' . PHP_EOL, $output);
-        $this->assertStringContainsString('Revoked privileges and dropped roles new_child and new_parent ' . PHP_EOL, $output);
+        $output = $this->runFunctionSnippet('add_and_drop_database_role');
+        $this->assertStringContainsString('Waiting for create role and grant operation to complete...' . PHP_EOL, $output);
+        $this->assertStringContainsString('Created roles new_parent and new_child and granted privileges' . PHP_EOL, $output);
+        $this->assertStringContainsString('Waiting for revoke role and drop role operation to complete...' . PHP_EOL, $output);
+        $this->assertStringContainsString('Revoked privileges and dropped roles new_child and new_parent' . PHP_EOL, $output);
     }
 
     private function testGetInstanceConfig()
@@ -905,5 +985,8 @@ class spannerTest extends TestCase
         $database->drop();
         self::$instance->delete();
         self::$lowCostInstance->delete();
+        if (self::$customInstanceConfig->exists()) {
+            self::$customInstanceConfig->delete();
+        }
     }
 }
